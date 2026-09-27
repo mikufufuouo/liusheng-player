@@ -1,7 +1,12 @@
-const SHELL_CACHE = 'music-archive-shell-37d4b2af6217cd7a';
+const SHELL_CACHE = 'music-archive-shell-8201e979ba8a4726';
 const AUDIO_CACHE = 'music-archive-audio-v1';
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const AUDIO_PATH = /^\/api\/tracks\/[^/]+\/audio$/;
+const LOCAL_AUDIO_PREFIX = `${APP_ROOT}offline-audio/`;
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'LIUSHENG_AUDIO_CAPABILITY') event.ports?.[0]?.postMessage({streamVersion:1});
+});
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
@@ -39,9 +44,8 @@ self.addEventListener('activate', event => {
   })());
 });
 
-function rangeResponse(full, rangeHeader) {
-  return full.blob().then(blob => {
-    const size = blob.size;
+async function rangeResponse(full, rangeHeader) {
+    const size = Number(full.headers.get('content-length')) || (await full.clone().blob()).size;
     const range = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
     if (!range || (!range[1] && !range[2]) || rangeHeader.includes(',')) {
       return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}`, 'Accept-Ranges': 'bytes' } });
@@ -61,14 +65,48 @@ function rangeResponse(full, rangeHeader) {
     headers.set('Content-Length', String(end - start + 1));
     headers.set('Accept-Ranges', 'bytes');
     headers.set('Content-Type', full.headers.get('Content-Type') || 'audio/mpeg');
-    return new Response(blob.slice(start, end + 1), { status: 206, statusText: 'Partial Content', headers });
-  });
+    if (!full.body) return new Response((await full.blob()).slice(start, end + 1), { status: 206, statusText: 'Partial Content', headers });
+    const reader = full.body.getReader();
+    let offset = 0;
+    const body = new ReadableStream({
+      async pull(controller) {
+        while (offset <= end) {
+          const {value, done} = await reader.read();
+          if (done) { controller.close(); return; }
+          const chunkStart = offset;
+          offset += value.byteLength;
+          if (offset <= start) continue;
+          const from = Math.max(0, start - chunkStart);
+          const to = Math.min(value.byteLength, end - chunkStart + 1);
+          if (to > from) controller.enqueue(value.subarray(from, to));
+          if (offset > end) { controller.close(); await reader.cancel(); }
+          return;
+        }
+        controller.close();
+      },
+      cancel() { return reader.cancel(); },
+    });
+    return new Response(body, { status: 206, statusText: 'Partial Content', headers });
 }
 
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || request.method !== 'GET') return;
+
+  if (url.pathname.startsWith(LOCAL_AUDIO_PREFIX)) {
+    event.respondWith((async () => {
+      const id = url.pathname.slice(LOCAL_AUDIO_PREFIX.length);
+      if (!/^[-\w]{1,120}$/.test(id)) return new Response(null, {status:404});
+      const cache = await caches.open(AUDIO_CACHE);
+      const key = new URL(`/api/tracks/${encodeURIComponent(id)}/audio`, self.location.origin).href;
+      const cached = await cache.match(key, {ignoreVary:true});
+      if (!cached) return new Response(null, {status:404});
+      const range = request.headers.get('Range');
+      return range ? rangeResponse(cached, range) : cached;
+    })());
+    return;
+  }
 
   if (AUDIO_PATH.test(url.pathname) && url.searchParams.get('sync') !== '1') {
     event.respondWith((async () => {
