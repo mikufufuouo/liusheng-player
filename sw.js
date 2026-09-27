@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'music-archive-shell-5cc3b852ca48cdcf';
+const SHELL_CACHE = 'music-archive-shell-9ae343963c2768f6';
 const AUDIO_CACHE = 'music-archive-audio-v1';
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const AUDIO_PATH = /^\/api\/tracks\/[^/]+\/audio$/;
@@ -130,8 +130,8 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       const diagnosticsUrl = new URL('diagnostics.html', self.registration.scope);
+      const cache = await caches.open(SHELL_CACHE);
       if (url.pathname === diagnosticsUrl.pathname) {
-        const cache = await caches.open(SHELL_CACHE);
         try {
           const latest = await fetch(request);
           if (latest.ok && latest.headers.get('content-type')?.includes('text/html')) {
@@ -141,8 +141,14 @@ self.addEventListener('fetch', event => {
         } catch { /* Use the saved diagnostics page when offline. */ }
         return await cache.match(diagnosticsUrl.href) || new Response('诊断页面尚未缓存，请联网打开一次。', {status:503, headers:{'Content-Type':'text/plain; charset=utf-8'}});
       }
-      const cached=await (await caches.open(SHELL_CACHE)).match(APP_ROOT);
-      return cached || fetch(request);
+      try {
+        const latest = await fetch(request, { cache: 'no-store' });
+        if (latest.ok && latest.headers.get('content-type')?.includes('text/html')) {
+          await cache.put(APP_ROOT, latest.clone());
+          return latest;
+        }
+      } catch { /* Keep the installed player usable offline. */ }
+      return await cache.match(APP_ROOT) || new Response('离线页面尚未缓存，请联网打开一次。', {status:503, headers:{'Content-Type':'text/plain; charset=utf-8'}});
     })());
     return;
   }
