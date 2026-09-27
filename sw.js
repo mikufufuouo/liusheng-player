@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'music-archive-shell-3546e46614d01e13';
+const SHELL_CACHE = 'music-archive-shell-50e3dd3cf5b1409a';
 const AUDIO_CACHE = 'music-archive-audio-v1';
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const AUDIO_PATH = /^\/api\/tracks\/[^/]+\/audio$/;
