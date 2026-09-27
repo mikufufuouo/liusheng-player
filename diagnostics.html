@@ -36,6 +36,7 @@
       <p class="empty" id="empty" hidden>这台设备还没有诊断记录。</p>
       <div class="actions">
         <button class="primary" id="export" type="button">导出 JSON</button>
+        <button id="update-player" type="button">更新播放器</button>
         <button id="clear" type="button">清除记录</button>
         <button id="back" type="button">返回播放器</button>
       </div>
@@ -113,6 +114,23 @@
     try { localStorage.removeItem(KEY); status.textContent = '本机诊断记录已清除。'; }
     catch { status.textContent = '浏览器不允许清除本机记录。'; }
     refresh();
+  });
+  document.getElementById('update-player').addEventListener('click', async () => {
+    const button = document.getElementById('update-player');
+    button.disabled = true;
+    status.textContent = '正在更新播放器…';
+    try {
+      if (!('serviceWorker' in navigator)) throw new Error('unsupported');
+      const script = new URL(`sw.js?refresh=${Date.now()}`, location.href);
+      await navigator.serviceWorker.register(script.href, { scope: './', updateViaCache: 'none' });
+      const timeout = new Promise(resolve => setTimeout(resolve, 6000));
+      const changed = new Promise(resolve => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
+      await Promise.race([changed, timeout]);
+      location.replace(new URL(`./?updated=${Date.now()}`, location.href).href);
+    } catch {
+      status.textContent = '更新失败。请联网后重试；本地音乐不会被清除。';
+      button.disabled = false;
+    }
   });
   document.getElementById('back').addEventListener('click', () => { location.href = new URL('./', location.href).href; });
   refresh();
