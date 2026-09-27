@@ -49,7 +49,7 @@
   const KEY = 'liusheng:diagnostics:v1';
   const ALLOWED = new Set(['component', 'action', 'code', 'errorName', 'source', 'phase', 'status', 'count', 'durationMs', 'online', 'visibility', 'reason', 'kind', 'sizeMB', 'positionBucket', 'readyState', 'networkState', 'swControlled', 'durationBucket']);
   const SECRET = /(?:token|secret|password|passwd|authorization|cookie|api[_-]?key)/i;
-  const EVENTS = new Set(['app-start', 'pagehide', 'previous-session-possibly-interrupted', 'unhandledrejection', 'window.error', 'audio-ended', 'audio-error', 'audio-fallback', 'audio-fallback-error', 'audio-pause', 'audio-playing', 'audio-source']);
+  const EVENTS = new Set(['app-start', 'app-local-start', 'app-local-ready', 'app-auth-ready', 'app-player-ready', 'cache-scan-start', 'cache-scan-done', 'pagehide', 'previous-session-possibly-interrupted', 'unhandledrejection', 'window.error', 'audio-ended', 'audio-error', 'audio-fallback', 'audio-fallback-error', 'audio-pause', 'audio-playing', 'audio-source']);
   function read() {
     try {
       const raw = localStorage.getItem(KEY);
