@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f2eb">
+  <title>留声 · 诊断日志</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #282720; background: #f5f2eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: max(24px, env(safe-area-inset-top)) 18px max(32px, env(safe-area-inset-bottom)); }
+    main { max-width: 640px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font: 500 1.5rem/1.3 Georgia, serif; }
+    p { margin: 8px 0 18px; color: #68665e; }
+    .card { padding: 20px; border: 1px solid #dedbd2; border-radius: 14px; background: #fbfaf6; }
+    .count { margin: 0 0 12px; color: #282720; font-size: 1rem; }
+    ol { display: grid; gap: 7px; margin: 0; padding-left: 24px; }
+    li { padding-left: 2px; color: #55534c; overflow-wrap: anywhere; }
+    time { color: #77746b; font-variant-numeric: tabular-nums; }
+    .empty { color: #77746b; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    button { min-height: 44px; padding: 9px 15px; border: 1px solid #c9c5ba; border-radius: 9px; color: #282720; background: #fff; font: inherit; cursor: pointer; }
+    button.primary { border-color: #37352e; color: #fff; background: #37352e; }
+    button:focus-visible { outline: 3px solid #99927f; outline-offset: 2px; }
+    .note { margin: 18px 0 0; font-size: .9rem; }
+    #status { min-height: 1.5em; margin: 8px 0 0; color: #4e644e; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>留声 · 诊断日志</h1>
+    <p>如果播放器页面在 iPhone 上反复退出，可以从这里导出最近的本机运行记录，发给维护者协助排查。</p>
+    <section class="card" aria-labelledby="recent-title">
+      <h2 id="recent-title" class="count">本机记录：<span id="count">读取中…</span></h2>
+      <ol id="events" aria-live="polite"></ol>
+      <p class="empty" id="empty" hidden>这台设备还没有诊断记录。</p>
+      <div class="actions">
+        <button class="primary" id="export" type="button">导出 JSON</button>
+        <button id="clear" type="button">清除记录</button>
+        <button id="back" type="button">返回播放器</button>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+    <p class="note">记录保存在此设备的浏览器中，不会自动上传。页面只显示事件名称和时间；导出前会过滤网址、凭据和自由文本。若系统直接结束了浏览器进程，日志只能提供崩溃前的线索，无法替代 iOS 系统崩溃报告。</p>
+  </main>
+<script>
+(() => {
+  'use strict';
+  const KEY = 'liusheng:diagnostics:v1';
+  const ALLOWED = new Set(['component', 'action', 'code', 'errorName', 'source', 'phase', 'status', 'count', 'durationMs', 'online', 'visibility', 'reason', 'kind', 'sizeMB', 'positionBucket', 'readyState', 'networkState', 'swControlled', 'durationBucket']);
+  const SECRET = /(?:token|secret|password|passwd|authorization|cookie|api[_-]?key)/i;
+  const EVENTS = new Set(['app-start', 'pagehide', 'previous-session-possibly-interrupted', 'unhandledrejection', 'window.error', 'audio-ended', 'audio-error', 'audio-fallback', 'audio-fallback-error', 'audio-pause', 'audio-playing', 'audio-source']);
+  function read() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw || raw.length > 48000) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(row => row && typeof row === 'object' && typeof row.at === 'string' && typeof row.event === 'string').slice(-100).map(row => {
+        const time = Date.parse(row.at);
+        const item = { at: Number.isFinite(time) ? new Date(time).toISOString() : '', event: EVENTS.has(row.event) ? row.event : 'other' };
+        if (row.details && typeof row.details === 'object') {
+          const details = {};
+          for (const [key, value] of Object.entries(row.details)) {
+            if (!ALLOWED.has(key) || SECRET.test(key)) continue;
+            if (typeof value === 'number' && Number.isFinite(value) || typeof value === 'boolean') details[key] = value;
+            else if (typeof value === 'string') {
+              if (key === 'errorName') details[key] = /^[A-Za-z]{1,28}Error$/.test(value) ? value : 'UnknownError';
+              else if (key === 'kind') details[key] = ['blob', 'stream'].includes(value) ? value : 'other';
+              else if (key === 'visibility') details[key] = ['visible', 'hidden', 'prerender'].includes(value) ? value : 'unknown';
+              else if (key === 'source') details[key] = ['script', 'window'].includes(value) ? value : 'other';
+              else if (key === 'reason') details[key] = ['media-error'].includes(value) ? value : 'other';
+              else details[key] = '[omitted for privacy]';
+            }
+          }
+          if (Object.keys(details).length) item.details = details;
+        }
+        return item;
+      }).filter(row => row.at);
+    } catch { return []; }
+  }
+  const count = document.getElementById('count');
+  const events = document.getElementById('events');
+  const empty = document.getElementById('empty');
+  const status = document.getElementById('status');
+  let rows = [];
+  function refresh() {
+    rows = read();
+    count.textContent = `${rows.length} 条`;
+    events.replaceChildren();
+    empty.hidden = rows.length > 0;
+    for (const row of rows.slice(-8).reverse()) {
+      const li = document.createElement('li');
+      const time = document.createElement('time');
+      const parsed = Date.parse(row.at);
+      time.textContent = Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : '时间未知';
+      const label = document.createTextNode(` · ${row.event}`);
+      li.append(time, label);
+      events.append(li);
+    }
+  }
+  document.getElementById('export').addEventListener('click', () => {
+    const ios = /(?:iPhone|iPad|iPod).*?OS (\d+)[._](\d+)/i.exec(navigator.userAgent);
+    const payload = { format: 'liusheng-diagnostics-v1', exportedAt: new Date().toISOString(), buildVersion: 'see-app-version', platform: ios ? `iOS ${ios[1]}.${ios[2]}` : 'non-iOS or version unavailable', entries: rows };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `liusheng-diagnostics-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = '诊断文件已生成，请在“文件”或下载记录中查看。';
+  });
+  document.getElementById('clear').addEventListener('click', () => {
+    try { localStorage.removeItem(KEY); status.textContent = '本机诊断记录已清除。'; }
+    catch { status.textContent = '浏览器不允许清除本机记录。'; }
+    refresh();
+  });
+  document.getElementById('back').addEventListener('click', () => { location.href = new URL('./', location.href).href; });
+  refresh();
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'music-archive-shell-8201e979ba8a4726';
+const SHELL_CACHE = 'music-archive-shell-84abe57232530ad8';
 const AUDIO_CACHE = 'music-archive-audio-v1';
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const AUDIO_PATH = /^\/api\/tracks\/[^/]+\/audio$/;
@@ -15,6 +15,10 @@ self.addEventListener('install', event => {
     if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) throw new Error('App shell unavailable');
     const html = await response.clone().text();
     await cache.put(APP_ROOT, response);
+    const diagnosticsUrl = new URL('diagnostics.html', self.registration.scope).href;
+    const diagnostics = await fetch(diagnosticsUrl, { credentials: 'same-origin', cache: 'reload' });
+    if (!diagnostics.ok || !diagnostics.headers.get('content-type')?.includes('text/html')) throw new Error('Diagnostics page unavailable');
+    await cache.put(diagnosticsUrl, diagnostics);
     const assets = new Map();
     for (const match of html.matchAll(/(?:src|href)=["']([^"']+)["']/g)) {
       try {
@@ -125,6 +129,18 @@ self.addEventListener('fetch', event => {
 
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
+      const diagnosticsUrl = new URL('diagnostics.html', self.registration.scope);
+      if (url.pathname === diagnosticsUrl.pathname) {
+        const cache = await caches.open(SHELL_CACHE);
+        try {
+          const latest = await fetch(request);
+          if (latest.ok && latest.headers.get('content-type')?.includes('text/html')) {
+            await cache.put(diagnosticsUrl.href, latest.clone());
+            return latest;
+          }
+        } catch { /* Use the saved diagnostics page when offline. */ }
+        return await cache.match(diagnosticsUrl.href) || new Response('诊断页面尚未缓存，请联网打开一次。', {status:503, headers:{'Content-Type':'text/plain; charset=utf-8'}});
+      }
       const cached=await (await caches.open(SHELL_CACHE)).match(APP_ROOT);
       return cached || fetch(request);
     })());
