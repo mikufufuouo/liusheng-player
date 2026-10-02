@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'music-archive-shell-06fff2a7a249e198';
+const SHELL_CACHE = 'music-archive-shell-54f6a1cfddc3e558';
 const AUDIO_CACHE = 'music-archive-audio-v1';
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const AUDIO_PATH = /^\/api\/tracks\/[^/]+\/audio$/;
@@ -156,7 +156,10 @@ self.addEventListener('fetch', event => {
   if (/\.(?:js|css|woff2?|ttf|svg)$/i.test(url.pathname)) {
     event.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
-      const cached=await cache.match(request);
+      // Static shell bytes are identical for same-origin requests. Module/CSS
+      // loads send Origin while install-time fetches may not; Vary: Origin
+      // must not hide these installed assets when the device goes offline.
+      const cached=await cache.match(request, {ignoreVary:true});
       if(cached)return cached;
       const response=await fetch(request);
       if(response.ok && !response.headers.get('content-type')?.includes('application/json'))await cache.put(request,response.clone());
