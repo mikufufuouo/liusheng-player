@@ -1,5 +1,6 @@
-const SHELL_CACHE = 'music-archive-shell-3f93505152e345fe';
+const SHELL_CACHE = 'music-archive-shell-8363395719491070';
 const AUDIO_CACHE = 'music-archive-audio-v1';
+const WORKER_ASSETS = ["assets/honorComputation.worker-CchyBg3f.js"]; // Filled by version-sw.mjs for offline listening calculations.
 const APP_ROOT = new URL(self.registration.scope).pathname;
 const AUDIO_PATH = /^\/api\/tracks\/[^/]+\/audio$/;
 const LOCAL_AUDIO_PREFIX = `${APP_ROOT}offline-audio/`;
@@ -20,6 +21,7 @@ self.addEventListener('install', event => {
     if (!diagnostics.ok || !diagnostics.headers.get('content-type')?.includes('text/html')) throw new Error('Diagnostics page unavailable');
     await cache.put(diagnosticsUrl, diagnostics);
     const assets = new Map();
+    for (const path of WORKER_ASSETS) assets.set(new URL(path, self.registration.scope).href, true);
     for (const match of html.matchAll(/(?:src|href)=["']([^"']+)["']/g)) {
       try {
         const url = new URL(match[1], self.registration.scope);
